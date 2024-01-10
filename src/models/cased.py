@@ -54,7 +54,7 @@ class CaSED(VocabularyFreeCLIP):
         vocab_transform = self._vocab_transform
 
         def vocabs_transforms(texts: list[str]) -> list[torch.Tensor]:
-            return [vocab_transform(text) for text in texts]
+            return [vocab_transform(text) for text in texts] # filtering the sentences
 
         return vocabs_transforms
 
