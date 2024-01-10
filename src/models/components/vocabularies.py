@@ -150,13 +150,13 @@ class RetrievalVocabulary(BaseVocabulary):
         """
         assert images_z is not None
 
-        images_z = images_z / images_z.norm(dim=-1, keepdim=True)
-        images_z = images_z.cpu().detach().numpy().tolist()
+        images_z = images_z / images_z.norm(dim=-1, keepdim=True) # image embeddings normalization 
+        images_z = images_z.cpu().detach().numpy().tolist() # convert to numpy
 
         if isinstance(images_z[0], float):
             images_z = [images_z]
 
-        query = np.matrix(images_z).astype("float32")
+        query = np.matrix(images_z).astype("float32") # bs, emb_dim(768)
         results = self.database.query(query, modality="text", num_samples=self.num_samples)
         vocabularies = [[r["caption"] for r in result] for result in results]
 

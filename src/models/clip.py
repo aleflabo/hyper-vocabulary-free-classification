@@ -73,7 +73,7 @@ class CLIP(VisionLanguageModel):
         # init base class
         super().__init__(
             *args,
-            vision_encoder=model.visual,
+            vision_encoder=model.visual, #model is the one constructed by open_clip, we should override this
             language_encoder=language_encoder,
             tokenizer=open_clip.get_tokenizer(model_name),
             classifier=classifier,
