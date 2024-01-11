@@ -52,6 +52,7 @@ class VocabularyFreeCLIP(CLIP):
             return self._prev_vocab_words_z
 
         prompts = self.vocab_prompts if use_prompts else None
+        # encode the text (tokenize and embed)
         texts_z_views = self.encode_text(self.text_preprocess(vocab, prompts=prompts))
 
         # cache vocabulary

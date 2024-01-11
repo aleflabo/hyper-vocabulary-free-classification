@@ -1,0 +1,10 @@
+_target_: src.models.meru.CaSED_MERU
+
+defaults:
+  - vocabulary: retrieval
+
+model_name: "ViT-L-14"
+alpha: 1.0 # no text component in eval
+
+meru_config: "checkpoints/meru_vit_L/train_meru_vit_l.py"
+meru_ckpt: "checkpoints/meru_vit_L/meru_vit_l.pth"
