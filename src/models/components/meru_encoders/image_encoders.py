@@ -51,15 +51,17 @@ def build_timm_vit(
         arch,
         # `num_classes = 0` does not create the final classification head.
         num_classes=0,
-        global_pool=global_pool,
+        #! global_pool=global_pool,
         #
         # Do not use [CLS] token for models that use global average pooling.
-        class_token=global_pool == "token",
+        #! class_token=global_pool == "token",
         #
         # Use LayerNorm with default `eps = 1e-5` (timm uses 1e-6, not sure why)
-        norm_layer=nn.LayerNorm,
+        #! This should be less important since we use a ckpt and this affects initialization
+        #! norm_layer=nn.LayerNorm,
     )
-    model.set_grad_checkpointing(grad_checkpointing)
+    #! This is not present in our timm version. (?)
+    #! model.set_grad_checkpointing(grad_checkpointing)
 
     # Set `width` attribute to access in model.
     model.width = model.embed_dim
