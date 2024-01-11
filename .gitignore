@@ -155,3 +155,4 @@ dmypy.json
 .env
 .autoenv
 checkpoints/
+src/utils/meru_utils/bpe_simple_vocab_16e6.txt.gz
