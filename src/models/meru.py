@@ -15,11 +15,18 @@ from src.models.components.metrics import (
 )
 from src.models.vocabulary_free_clip import VocabularyFreeCLIP
 
+# MERU imports
+from src.utils.meru_utils.config import LazyConfig, LazyFactory
+from src.utils.meru_utils.checkpointing import CheckpointManager
+from src.utils.meru_utils.tokenizer import Tokenizer
+
 log = utils.get_logger(__name__)
 
 
-class CaSED(VocabularyFreeCLIP):
+class CaSED_MERU(VocabularyFreeCLIP):
     """LightningModule for Category Search from External Databases.
+
+    It employs MERU's Visual and Textual encoders to generate embeddings for images and texts.
 
     Reference:
         Conti et al. Vocabulary-free Image Classification. NeurIPS 2023.
@@ -39,7 +46,18 @@ class CaSED(VocabularyFreeCLIP):
     def __init__(self, *args, vocab_transform: Optional[TextCompose] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._vocab_transform = vocab_transform or default_vocab_transform()
+        device = (
+            torch.cuda.current_device()
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
 
+        meru_config = LazyConfig.load(kwargs["meru_config"])
+        meru_ckpt = kwargs["meru_ckpt"]
+        self.meru = LazyFactory.build_model(meru_config, device).eval()
+        CheckpointManager(model=self.meru).load(meru_ckpt)
+        self.meru.eval()
+        self.meru_tokenizer = Tokenizer() # Don't know if it should override the main tokenizer or not
         # save hyperparameters
         kwargs["alpha"] = kwargs.get("alpha", 0.5)
         self.save_hyperparameters("alpha", "vocab_transform")
@@ -92,8 +110,8 @@ class CaSED(VocabularyFreeCLIP):
         vocabularies = self.vocab_transform(vocabularies)
         vocabularies = [vocab or ["object"] for vocab in vocabularies]
         words = sum(vocabularies, [])
-        words_z = self.encode_vocabulary(words, use_prompts=True)
-        words_z = words_z / words_z.norm(dim=-1, keepdim=True)
+        words_z = self.encode_vocabulary_meru(words, use_prompts=True)
+        # words_z = words_z / words_z.norm(dim=-1, keepdim=True) #! Rimosso to be hyperbolic
 
         # create a one-hot relation mask between images and words
         words_per_image = [len(vocab) for vocab in vocabularies]
@@ -102,9 +120,13 @@ class CaSED(VocabularyFreeCLIP):
         mask = torch.zeros(len(images_z), sum(words_per_image), device=self.device)
         mask[row_indices, col_indices] = 1
 
+        #! get hyperbolic image embeddings
+        images_z = self.meru.encode_image(images_z)
         # get the image and text predictions
-        images_p = self.classifier(images_z, words_z, mask=mask)
-        texts_p = self.classifier(texts_z, words_z, mask=mask)
+        if not self.hparams.alpha == 0:
+            images_p = self.classifier(images_z, words_z, mask=mask)
+        if not self.hparams.alpha == 1:
+            texts_p = self.classifier(texts_z, words_z, mask=mask)
 
         # average the image and text predictions
         samples_p = self.hparams.alpha * images_p + (1 - self.hparams.alpha) * texts_p
@@ -124,8 +146,8 @@ class CaSED(VocabularyFreeCLIP):
         images_fp = batch["images_fp"]
 
         # get vocabularies for each image
-        images_z = self.vision_encoder(images)
-        images_vocab = self.vocabulary(images_z=images_z, images_fp=images_fp)
+        images_z = self.vision_encoder(images) # [64, 768] # encode images with CLIP for retrieval
+        images_vocab = self.vocabulary(images_z=images_z, images_fp=images_fp) # this only find the sentences
 
         # get predictions for each image
         images_p, words, images_vocab = self.batch_step(images_z, images_vocab)
@@ -171,7 +193,44 @@ class CaSED(VocabularyFreeCLIP):
         semantic_metrics["test/semantic_iou"] = SentenceIOU()
         semantic_metrics["test/semantic_similarity"] = SentenceScore()
         self.metrics["test/semantic_metrics"] = MetricCollection(semantic_metrics)
+    
+    def encode_vocabulary_meru(self, vocab: list[str], use_prompts: bool = False) -> torch.Tensor:
+        """Encode a vocabulary.
+
+        Args:
+            vocab (list): List of words.
+        """
+        if vocab == self._prev_vocab_words and use_prompts == self._prev_used_prompts:
+            return self._prev_vocab_words_z
+
+        prompts = self.vocab_prompts if use_prompts else None
+        # encode the text (tokenize and embed)
+        texts_z_views = self.encode_text_meru(self.text_preprocess(vocab, prompts=prompts))
+
+        # cache vocabulary
+        self._prev_vocab_words = vocab
+        self._prev_used_prompts = use_prompts
+        self._prev_vocab_words_z = texts_z_views
+
+        return texts_z_views
+    
+    def encode_text_meru(self, texts_views: list[list[str]]) -> torch.Tensor:
+        """Tokenize and encode texts with the language encoder.
+
+        Args:
+            texts_views (list[list[str]]): List of texts to encode.
+        """
+        tokenized_texts_views = [ #! [750(n_words) 77(...)] Vs [2302] 3+ tokens per word <BOS> t1...tk <EOS>
+            torch.cat([self.meru_tokenizer(text) for text in text_views]) for text_views in texts_views
+        ]
+        tokenized_texts_views = torch.stack(tokenized_texts_views).to(self.device)
+
+        T, C, _ = tokenized_texts_views.shape
+        texts_z_views = self.language_encoder(tokenized_texts_views.view(T * C, -1))
+        texts_z_views = texts_z_views.view(T, C, -1)
+
+        return texts_z_views
 
 
 if __name__ == "__main__":
-    _ = CaSED()
+    _ = CaSED_MERU()
