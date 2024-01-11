@@ -90,9 +90,9 @@ class CaSED(VocabularyFreeCLIP):
 
         # filter the words and embed them
         vocabularies = self.vocab_transform(vocabularies)
-        vocabularies = [vocab or ["object"] for vocab in vocabularies]
+        vocabularies = [vocab or ["object"] for vocab in vocabularies] # Here we have the candidates!
         words = sum(vocabularies, [])
-        words_z = self.encode_vocabulary(words, use_prompts=True)
+        words_z = self.encode_vocabulary(words, use_prompts=True) 
         words_z = words_z / words_z.norm(dim=-1, keepdim=True)
 
         # create a one-hot relation mask between images and words
