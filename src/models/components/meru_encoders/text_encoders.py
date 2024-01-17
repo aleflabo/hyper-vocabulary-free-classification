@@ -133,7 +133,7 @@ class TransformerTextEncoder(nn.Module):
         _posit_embed = self.posit_embed[:max_len, :]
         _attn_mask = self.attn_mask[:max_len, :max_len]
 
-        # shape: (batch_size, context_length, width)
+        # shape: (n_prompts, context_length, width)
         token_embeddings = self.token_embed(text_tokens) + _posit_embed
 
         # Forward pass through transformer, optionally with grad checkpointing.

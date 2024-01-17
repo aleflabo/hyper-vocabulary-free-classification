@@ -23,8 +23,20 @@ from src.utils.meru_utils import lorentz as L
 from src.models.components.nn import Hyper_NearestNeighboursClassifier
 from src.models.meru_backup import MERU
 
+from yaml import safe_load
+
 log = utils.get_logger(__name__)
 
+DNAMES = {
+    'Caltech101': 'caltech101',
+    'DTD': 'dtd',
+    'Flowers102': 'flowers102',
+    'Food101': 'food101',
+    'EuroSAT': 'eurosat',
+    'FGVCAircraft': 'aircraft',
+    'OxfordPets': 'pets',
+    'SUN397': 'sun397'
+}
 
 class CaSED_CLIP_MERU(VocabularyFreeCLIP):
     """LightningModule for Category Search from External Databases.
@@ -62,6 +74,10 @@ class CaSED_CLIP_MERU(VocabularyFreeCLIP):
         self.meru_augmentation = meru_for_augmentation
 
         if use_meru:
+            self.use_meru_prompts = kwargs.get("use_meru_prompts", True)
+            datasets_and_prompts_fp = kwargs["datasets_and_prompts"]
+            with open(datasets_and_prompts_fp, "r") as f:
+                self.datasets_and_prompts = safe_load(f)
             meru_config = LazyConfig.load(kwargs["meru_config"])
             meru_ckpt = kwargs["meru_ckpt"]
             self.meru = LazyFactory.build_model(meru_config, device).eval()
@@ -174,6 +190,8 @@ class CaSED_CLIP_MERU(VocabularyFreeCLIP):
         targets = batch["targets_name"]
         images_fp = batch["images_fp"]
 
+        self.eval_dataset = DNAMES[images_fp[0].split("/")[7]]
+
         # get vocabularies for each image
         images_z = self.vision_encoder(images) # [64, 768] # encode images with CLIP for retrieval
         images_vocab = self.vocabulary(images_z=images_z, images_fp=images_fp) # this only find the sentences
@@ -251,11 +269,12 @@ class CaSED_CLIP_MERU(VocabularyFreeCLIP):
         """
         assert len(texts_views) == 1, "It should be a tuple-singleton [ERR: len(texts_views) != 1]"
         
+        self.meru_prompts = self.datasets_and_prompts[self.eval_dataset]
         # Collect text features of each class.
         all_class_feats: list[torch.Tensor] = []
         
         for name in texts_views[0]:
-            class_prompts = [_pt.format(name) for _pt in self.prompts]
+            class_prompts = [_pt.format(name) for _pt in self.meru_prompts] if self.use_meru_prompts else ["{}"]
 
             class_prompt_tokens = self.meru_tokenizer(class_prompts)
             class_feats = self.meru.encode_text(class_prompt_tokens, project=True) #! Differently from MERU, I  use here the project=True since I do not have to average different prompts
