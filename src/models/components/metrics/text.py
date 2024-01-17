@@ -111,7 +111,7 @@ class SentenceScore(Metric):
             assert len(targets[0]) == 1, "Only one target per sample is supported."
             targets = sum(targets, [])
 
-        values_z = self.encoder([max(value, key=value.get) for value in values])
+        values_z = self.encoder([max(value, key=value.get) for value in values]) # SentenceBERT
         targets_z = self.encoder(targets)
 
         # compute cosine similarity

@@ -19,6 +19,9 @@ from src.models.vocabulary_free_clip import VocabularyFreeCLIP
 from src.utils.meru_utils.config import LazyConfig, LazyFactory
 from src.utils.meru_utils.checkpointing import CheckpointManager
 from src.utils.meru_utils.tokenizer import Tokenizer
+from src.utils.meru_utils import lorentz as L
+from src.models.components.nn import Hyper_NearestNeighboursClassifier
+from src.models.meru_backup import MERU
 
 log = utils.get_logger(__name__)
 
@@ -51,13 +54,26 @@ class CaSED_MERU(VocabularyFreeCLIP):
             if torch.cuda.is_available()
             else torch.device("cpu")
         )
+        meru_for_classification = kwargs.get("use_meru_for_classification", False)
+        meru_for_augmentation = kwargs.get("use_meru_for_augmentation", False)
+        use_meru = meru_for_classification or meru_for_augmentation
+        
+        self.meru_classification = meru_for_classification
+        self.meru_augmentation = meru_for_augmentation
 
-        meru_config = LazyConfig.load(kwargs["meru_config"])
-        meru_ckpt = kwargs["meru_ckpt"]
-        self.meru = LazyFactory.build_model(meru_config, device).eval()
-        CheckpointManager(model=self.meru).load(meru_ckpt)
-        self.meru.eval()
-        self.meru_tokenizer = Tokenizer() # Don't know if it should override the main tokenizer or not
+        if use_meru:
+            meru_config = LazyConfig.load(kwargs["meru_config"])
+            meru_ckpt = kwargs["meru_ckpt"]
+            self.meru = LazyFactory.build_model(meru_config, device).eval()
+            CheckpointManager(model=self.meru).load(meru_ckpt)
+            self.meru.eval()
+            if meru_for_classification:
+                self.meru_tokenizer = Tokenizer()
+                tau = kwargs.get("tau", 1.0)
+                use_sofmax = kwargs.get("use_softmax", False)
+                is_hyper = True if isinstance(self.meru, MERU) else False
+                self.classifier = Hyper_NearestNeighboursClassifier(is_hyper=is_hyper, tau=tau, use_softmax=use_sofmax)
+
         # save hyperparameters
         kwargs["alpha"] = kwargs.get("alpha", 0.5)
         self.save_hyperparameters("alpha", "vocab_transform")
@@ -86,13 +102,15 @@ class CaSED_MERU(VocabularyFreeCLIP):
         self._vocab_transform = transform
 
     def batch_step(
-        self, images_z: torch.Tensor, vocabularies: list[list]
+        self, images_z: torch.Tensor, vocabularies: list[list],
+        images
     ) -> tuple[torch.Tensor, list, list]:
         """Perform a single batch step.
 
         Args:
             images_z (torch.Tensor): Batch of image embeddings.
-            images_fp (list[str]): List of paths to image files.
+            vocabularies (list[list]): List of vocabularies (sentences) for each image.
+            images (torch.Tensor): Batch of images.
         """
         unfiltered_words = sum(vocabularies, [])
 
@@ -101,6 +119,7 @@ class CaSED_MERU(VocabularyFreeCLIP):
         unfiltered_words_z = unfiltered_words_z / unfiltered_words_z.norm(dim=-1, keepdim=True)
 
         # generate a text embedding for each image from their unfiltered words
+        #! We do not do this since MERU is only visual
         unfiltered_words_per_image = [len(vocab) for vocab in vocabularies]
         texts_z = torch.split(unfiltered_words_z, unfiltered_words_per_image)
         texts_z = torch.stack([word_z.mean(dim=0) for word_z in texts_z])
@@ -110,8 +129,11 @@ class CaSED_MERU(VocabularyFreeCLIP):
         vocabularies = self.vocab_transform(vocabularies)
         vocabularies = [vocab or ["object"] for vocab in vocabularies]
         words = sum(vocabularies, [])
-        words_z = self.encode_vocabulary_meru(words, use_prompts=True)
-        # words_z = words_z / words_z.norm(dim=-1, keepdim=True) #! Rimosso to be hyperbolic
+        if self.meru_classification:
+            words_z = self.encode_vocabulary_meru(words, use_prompts=True)
+        else:
+            words_z = self.encode_vocabulary(words, use_prompts=True)
+            words_z = words_z / words_z.norm(dim=-1, keepdim=True)
 
         # create a one-hot relation mask between images and words
         words_per_image = [len(vocab) for vocab in vocabularies]
@@ -120,16 +142,24 @@ class CaSED_MERU(VocabularyFreeCLIP):
         mask = torch.zeros(len(images_z), sum(words_per_image), device=self.device)
         mask[row_indices, col_indices] = 1
 
-        #! get hyperbolic image embeddings
-        images_z = self.meru.encode_image(images_z)
-        # get the image and text predictions
-        if not self.hparams.alpha == 0:
+        if self.meru_classification:
+            #! get hyperbolic image embeddings
+            images_z = self.meru.encode_image(images, project=True)
+            # get the image and text predictions
+            if self.hparams.alpha != 0.0:
+                images_p = self.classifier(images_z, words_z, mask=mask, curvature=self.meru.curv.exp())
+            #! for the time being, we do not use the text predictions
+            # if self.hparams.alpha != 1.0:
+            #     texts_p = self.classifier(texts_z, words_z, mask=mask)
+
+            samples_p = images_p
+        else:
+            # get the image and text predictions
             images_p = self.classifier(images_z, words_z, mask=mask)
-        if not self.hparams.alpha == 1:
             texts_p = self.classifier(texts_z, words_z, mask=mask)
 
-        # average the image and text predictions
-        samples_p = self.hparams.alpha * images_p + (1 - self.hparams.alpha) * texts_p
+            # average the image and text predictions
+            samples_p = self.hparams.alpha * images_p + (1 - self.hparams.alpha) * texts_p
 
         return samples_p, words, vocabularies
 
@@ -150,7 +180,7 @@ class CaSED_MERU(VocabularyFreeCLIP):
         images_vocab = self.vocabulary(images_z=images_z, images_fp=images_fp) # this only find the sentences
 
         # get predictions for each image
-        images_p, words, images_vocab = self.batch_step(images_z, images_vocab)
+        images_p, words, images_vocab = self.batch_step(images_z, images_vocab, images=images)
         preds = images_p.topk(k=1, dim=-1)
         images_words = [[words[idx] for idx in indices.tolist()] for indices in preds.indices]
         images_words_values = preds.values.tolist()
@@ -220,17 +250,26 @@ class CaSED_MERU(VocabularyFreeCLIP):
         Args:
             texts_views (list[list[str]]): List of texts to encode.
         """
-        tokenized_texts_views = [ #! [750(n_words) 77(...)] Vs [2302] 3+ tokens per word <BOS> t1...tk <EOS>
-            torch.cat([self.meru_tokenizer(text) for text in text_views]) for text_views in texts_views
-        ]
-        tokenized_texts_views = torch.stack(tokenized_texts_views).to(self.device)
+        assert len(texts_views) == 1, "It should be a tuple-singleton [ERR: len(texts_views) != 1]"
+        
+        # Collect text features of each class.
+        all_class_feats: list[torch.Tensor] = []
+        
+        for name in texts_views[0]:
+            class_prompts = [_pt.format(name) for _pt in self.prompts]
 
-        T, C, _ = tokenized_texts_views.shape
-        texts_z_views = self.language_encoder(tokenized_texts_views.view(T * C, -1))
-        texts_z_views = texts_z_views.view(T, C, -1)
+            class_prompt_tokens = self.meru_tokenizer(class_prompts)
+            class_feats = self.meru.encode_text(class_prompt_tokens, project=False)
 
-        return texts_z_views
+            # Ensamble in the tangent space, then project back to the hyperboloid
+            class_feats = class_feats.mean(dim=0)
+            class_feats = class_feats * self.meru.textual_alpha.exp()
+            class_feats = L.exp_map0(class_feats, self.meru.curv.exp())
+            
+            all_class_feats.append(class_feats)
+        all_class_feats = torch.stack(all_class_feats)
 
+        return all_class_feats
 
 if __name__ == "__main__":
     _ = CaSED_MERU()

@@ -110,7 +110,7 @@ class CLIPBaseline(nn.Module):
         tokens = torch.nn.utils.rnn.pad_sequence(tokens, batch_first=True)
         tokens = tokens.to(self.device)
 
-        # shape: (batch_size, context_length, textual.width)
+        # shape: (batch_size, context_length, textual.width) ( [1, 3, 512] for single words)
         text_feats = self.textual(tokens)
 
         # Get features for [EOS] position and apply projection. `[EOS]` token ID
