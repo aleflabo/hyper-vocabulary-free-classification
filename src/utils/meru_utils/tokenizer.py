@@ -59,7 +59,9 @@ class Tokenizer:
             re.IGNORECASE,
         )
 
-    def __call__(self, text: str | list[str]) -> list[torch.IntTensor]:
+    def __call__(self, text: str | list[str], 
+                 context_length: int = 77, 
+                 clip_like_output: bool = False) -> list[torch.IntTensor]:
         """
         Returns the tokenized representation of given input string(s).
 
@@ -95,8 +97,19 @@ class Tokenizer:
             eot_token = self.encoder["<|endoftext|>"]
             bpe_tokens = [sot_token, *bpe_tokens, eot_token]
             token_tensors.append(torch.IntTensor(bpe_tokens))
+            
+            if clip_like_output:
+                all_tokens = [bpe_tokens]
+                result = torch.zeros(len(all_tokens), context_length, dtype=torch.long)
+                #! Added to retrieve the same output as CLIP
+                for i, tokens in enumerate(all_tokens):
+                    if len(tokens) > context_length:
+                        tokens = tokens[:context_length]  # Truncate
+                        tokens[-1] = eot_token
+                    result[i, :len(tokens)] = torch.tensor(tokens)
+                return result
 
-        return token_tensors[0]
+        return token_tensors
 
     @staticmethod
     def get_pairs(word: str) -> set[str]:

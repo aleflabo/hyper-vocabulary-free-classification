@@ -30,16 +30,16 @@ class NearestNeighboursClassifier(torch.nn.Module):
             mask (torch.Tensor, optional): Zero out the similarities for the masked supports.
                 Defaults to None.
         """
-        query = query / query.norm(dim=-1, keepdim=True)
-        supports = supports / supports.norm(dim=-1, keepdim=True)
+        query = query / query.norm(dim=-1, keepdim=True) # images
+        supports = supports / supports.norm(dim=-1, keepdim=True) # words
 
         if supports.dim() == 2:
-            supports = supports.unsqueeze(0)
+            supports = supports.unsqueeze(0) # [1, N, C]
 
         Q, _ = query.shape
         N, C, _ = supports.shape
 
-        supports = supports.mean(dim=0)
+        supports = supports.mean(dim=0) # [N, C]
         supports = supports / supports.norm(dim=-1, keepdim=True)
         similarity = self.logit_scale.exp() * query @ supports.T
         similarity = similarity / self.tau if self.tau != 1.0 else similarity
