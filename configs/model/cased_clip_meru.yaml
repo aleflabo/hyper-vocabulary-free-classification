@@ -1,4 +1,4 @@
-_target_: src.models.meru.CaSED_MERU
+_target_: src.models.meruclip.CaSED_CLIP_MERU
 
 defaults:
   - vocabulary: retrieval
@@ -6,9 +6,9 @@ defaults:
 model_name: "ViT-L-14"
 alpha: 1.0 # no text component in eval
 
-meru_config: "checkpoints/meru_vit_L/train_meru_vit_l.py"
-meru_ckpt: "checkpoints/meru_vit_L/meru_vit_l.pth"
+meru_config: "checkpoints/meru_clip_vit_L/train_clip_vit_l.py"
+meru_ckpt: "checkpoints/meru_clip_vit_L/clip_vit_l.pth"
 tau: 0.07 # from meru paper
-use_softmax: True
+use_softmax: False
 use_meru_for_classification: True
 use_meru_for_augmentation: False
