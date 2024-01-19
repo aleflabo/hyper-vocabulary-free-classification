@@ -8,10 +8,15 @@ alpha: 1.0 # no text component in eval
 
 meru_config: "checkpoints/meru_vit_L/train_meru_vit_l.py"
 meru_ckpt: "checkpoints/meru_vit_L/meru_vit_l.pth"
-tau: 0.07 # from meru paper
+tau: 0.07 # from meru paper. Tau is the temperature for the softmax
 use_softmax: False
+similarity: LIP # LIP (Lorentzian Inner Product) or DIST (Hyperbolic Distance)
+# When it is DIST, the code sets use_softmax to True
 use_meru_prompts: True
 datasets_and_prompts: "src/utils/meru_utils/datasets_and_prompts.yaml"
 # If the next two args are False, then it is a regular CaSED model
-use_meru_for_classification: True
-use_meru_for_augmentation: False
+use_meru_for_classification: False
+use_meru_for_augmentation: True
+augment_txt: True
+augment_img: False
+steps: 50

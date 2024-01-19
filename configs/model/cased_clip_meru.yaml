@@ -10,8 +10,13 @@ meru_config: "checkpoints/meru_clip_vit_L/train_clip_vit_l.py"
 meru_ckpt: "checkpoints/meru_clip_vit_L/clip_vit_l.pth"
 tau: 0.07 # from meru paper
 use_softmax: False
+similarity: DIST # LIP (Lorentzian Inner Product) or DIST (Hyperbolic Distance)
+# When it is DIST, the code sets use_softmax to True
 use_meru_prompts: True
 datasets_and_prompts: "src/utils/meru_utils/datasets_and_prompts.yaml"
 # If the next two args are False, then it is a regular CaSED model
 use_meru_for_classification: True
 use_meru_for_augmentation: False
+augment_txt: True
+augment_img: False
+steps: 50
