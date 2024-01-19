@@ -20,7 +20,7 @@ from torchvision import transforms as T
 from src.utils.meru_utils import lorentz as L
 from src.utils.meru_utils.config import LazyConfig, LazyFactory
 from src.models.meru_backup import MERU, CLIPBaseline
-from src.utils.meru_utils import Tokenizer
+from src.utils.meru_utils.tokenizer import Tokenizer
 from src.utils.meru_utils.checkpointing import CheckpointManager
 
 
@@ -86,7 +86,7 @@ def calc_scores(
             entailment_energy[-1, ...] = 0
 
         # Set a large negative score if text does not entail image.
-        scores[entailment_energy.T > 0] = -1e12
+        scores[entailment_energy.T > 0] = float("-inf")# -1e12
         return scores
     else:
         # model is not needed here.

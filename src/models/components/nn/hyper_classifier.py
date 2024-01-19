@@ -15,12 +15,19 @@ class Hyper_NearestNeighboursClassifier(torch.nn.Module):
         tau (float): Temperature for the softmax. Defaults to 1.0.
     """
 
-    def __init__(self, tau: float = 1.0, is_hyper: bool = True, use_softmax: bool = False) -> None:
+    def __init__(self, tau: float = 1.0, 
+                 is_hyper: bool = True, 
+                 use_softmax: bool = False,
+                 similarity: str = "LIP") -> None:
         super().__init__()
+        
+        assert similarity in ["LIP", "DIST"]
         self.logit_scale = torch.nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         self.tau = tau
         self.is_hyper = is_hyper
-        self.use_softmax = use_softmax
+        self.use_softmax = use_softmax if similarity == "LIP" else True #! softmax is needed for DIST
+        self.similarity_func = pairwise_inner if similarity == "LIP" else pairwise_dist
+        self.sim = similarity
 
     def forward(
         self, query: torch.Tensor, supports: torch.Tensor, mask: Optional[torch.Tensor] = None,
@@ -47,7 +54,9 @@ class Hyper_NearestNeighboursClassifier(torch.nn.Module):
         supports = supports.mean(dim=0)
         # supports = supports / supports.norm(dim=-1, keepdim=True)
         if self.is_hyper:
-            similarity = pairwise_inner(query, supports, curvature) # self.logit_scale.exp()pairwise_inner
+            similarity = self.similarity_func(query, supports, curvature) # self.logit_scale.exp()pairwise_inner
+            if self.sim == "DIST":
+                similarity = -similarity
         else:
             similarity = self.logit_scale.exp() * query @ supports.T
         similarity = similarity / self.tau if self.tau != 1.0 else similarity
